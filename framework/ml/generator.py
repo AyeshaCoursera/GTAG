@@ -1,25 +1,29 @@
-"""Variational Autoencoder for synthetic transcriptomic data generation."""
+"""VAE for synthetic data generation."""
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
-from sklearn.preprocessing import StandardScaler
-from typing import Tuple, Dict
+from typing import Tuple
 
 
 class VAE(nn.Module):
-    """Variational Autoencoder for transcriptomic data."""
+    """Variational Autoencoder for expression data."""
     
-    def __init__(self, input_dim: int, latent_dim: int = 64, hidden_dims: list = [256, 128]):
+    def __init__(self, input_dim: int, latent_dim: int = 64,
+                 hidden_dims: list = None):
         super().__init__()
-        
+        if hidden_dims is None:
+            hidden_dims = [256, 128]
+            
         # Encoder
         encoder_layers = []
         prev_dim = input_dim
         for h_dim in hidden_dims:
-            encoder_layers.extend([nn.Linear(prev_dim, h_dim), nn.BatchNorm1d(h_dim), nn.ReLU()])
+            encoder_layers.append(nn.Linear(prev_dim, h_dim))
+            encoder_layers.append(nn.BatchNorm1d(h_dim))
+            encoder_layers.append(nn.ReLU())
             prev_dim = h_dim
         self.encoder = nn.Sequential(*encoder_layers)
         self.fc_mu = nn.Linear(prev_dim, latent_dim)
@@ -29,11 +33,13 @@ class VAE(nn.Module):
         decoder_layers = []
         prev_dim = latent_dim
         for h_dim in reversed(hidden_dims):
-            decoder_layers.extend([nn.Linear(prev_dim, h_dim), nn.BatchNorm1d(h_dim), nn.ReLU()])
+            decoder_layers.append(nn.Linear(prev_dim, h_dim))
+            decoder_layers.append(nn.BatchNorm1d(h_dim))
+            decoder_layers.append(nn.ReLU())
             prev_dim = h_dim
         decoder_layers.append(nn.Linear(prev_dim, input_dim))
         self.decoder = nn.Sequential(*decoder_layers)
-    
+        
     def encode(self, x):
         h = self.encoder(x)
         return self.fc_mu(h), self.fc_logvar(h)
@@ -49,86 +55,82 @@ class VAE(nn.Module):
     def forward(self, x):
         mu, logvar = self.encode(x)
         z = self.reparameterize(mu, logvar)
-        return self.decode(z), mu, logvar
+        recon = self.decode(z)
+        return recon, mu, logvar
 
 
 class VAEGenerator:
-    """
-    VAE-based generator for synthetic transcriptomic profiles.
-    """
+    """VAE training and generation wrapper."""
     
-    def __init__(self, input_dim: int, latent_dim: int = 64, hidden_dims: list = [256, 128],
-                 learning_rate: float = 0.001, beta: float = 0.5):
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    def __init__(self, input_dim: int, latent_dim: int = 64,
+                 hidden_dims: list = None, beta: float = 0.5,
+                 learning_rate: float = 1e-3, device: str = None):
+        """
+        Initialize VAE generator.
+        
+        Parameters:
+        -----------
+        input_dim : int
+            Input dimension
+        latent_dim : int
+            Latent space dimension
+        hidden_dims : list
+            Hidden layer dimensions
+        beta : float
+            Beta VAE weight
+        learning_rate : float
+            Learning rate
+        device : str
+            Device to use ('cuda' or 'cpu')
+        """
+        if device is None:
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = torch.device(device)
+        
         self.vae = VAE(input_dim, latent_dim, hidden_dims).to(self.device)
         self.optimizer = optim.AdamW(self.vae.parameters(), lr=learning_rate, weight_decay=1e-5)
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', patience=10, factor=0.5)
         self.beta = beta
-        self.scaler = StandardScaler()
-        self.latent_dim = latent_dim
-    
+        
     def vae_loss(self, recon, x, mu, logvar):
-        """Compute VAE loss (reconstruction + KL divergence)."""
+        """Compute VAE loss."""
         recon_loss = nn.MSELoss(reduction='sum')(recon, x)
         kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         return (recon_loss + self.beta * kl_loss) / x.size(0)
     
-    def fit(self, data: np.ndarray, epochs: int = 50, batch_size: int = 128, verbose: bool = True) -> Dict:
-        """Train the VAE on transcriptomic data."""
-        # Standardize data
-        data_scaled = self.scaler.fit_transform(data)
-        
-        # Create DataLoader
-        dataset = TensorDataset(torch.FloatTensor(data_scaled))
+    def fit(self, X: np.ndarray, batch_size: int = 128, epochs: int = 50,
+            verbose: bool = True) -> list:
+        """Train VAE on data."""
+        X_tensor = torch.FloatTensor(X).to(self.device)
+        dataset = TensorDataset(X_tensor)
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
         
-        history = {'train_loss': []}
-        
+        losses = []
         for epoch in range(epochs):
             self.vae.train()
             total_loss = 0
-            
             for batch in loader:
                 x = batch[0].to(self.device)
                 recon, mu, logvar = self.vae(x)
                 loss = self.vae_loss(recon, x, mu, logvar)
-                
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
-                
                 total_loss += loss.item()
             
             avg_loss = total_loss / len(loader)
-            history['train_loss'].append(avg_loss)
+            losses.append(avg_loss)
             self.scheduler.step(avg_loss)
             
             if verbose and (epoch + 1) % 10 == 0:
                 print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.4f}")
         
-        return history
+        return losses
     
-    def generate(self, n_samples: int = 1000) -> np.ndarray:
-        """Generate synthetic expression profiles."""
+    def generate(self, n_samples: int) -> np.ndarray:
+        """Generate synthetic samples."""
         self.vae.eval()
         with torch.no_grad():
-            z = torch.randn(n_samples, self.latent_dim).to(self.device)
-            synthetic_scaled = self.vae.decode(z).cpu().numpy()
-            return self.scaler.inverse_transform(synthetic_scaled)
-    
-    def save(self, path: str):
-        """Save trained model."""
-        torch.save({
-            'model_state_dict': self.vae.state_dict(),
-            'scaler_mean': self.scaler.mean_,
-            'scaler_scale': self.scaler.scale_,
-            'latent_dim': self.latent_dim
-        }, path)
-    
-    def load(self, path: str):
-        """Load trained model."""
-        checkpoint = torch.load(path)
-        self.vae.load_state_dict(checkpoint['model_state_dict'])
-        self.scaler.mean_ = checkpoint['scaler_mean']
-        self.scaler.scale_ = checkpoint['scaler_scale']
-        self.latent_dim = checkpoint['latent_dim']
+            z = torch.randn(n_samples, self.vae.fc_mu.out_features).to(self.device)
+            synthetic = self.vae.decode(z).cpu().numpy()
+        return synthetic
