@@ -1,36 +1,51 @@
-# Transcriptomic Visual Framework Configuration
+# Transcriptomic Analysis Framework Configuration
 
+# Data settings
 data:
-  gtex_path: "s3://openproblems-data/resources/datasets/cellxgene_census/gtex_v9/log_cp10k/dataset.h5ad"
+  gtex_s3_path: "s3://openproblems-data/resources/datasets/cellxgene_census/gtex_v9/log_cp10k/dataset.h5ad"
   tcga_path: "TCGA-STAD.star_counts.tsv"
-  random_seed: 42
   n_cells_sample: 10000
-  n_hvg: 500
-  min_cells_per_gene: 3
-  min_genes_per_cell: 200
+  n_hvg_genes: 500
+  random_seed: 42
 
+# Analysis parameters
 analysis:
-  tissue_specific:
-    lfc_threshold: 1.0
-    fdr_threshold: 0.05
-  coexpression:
-    correlation_threshold: 0.6
-    fdr_threshold: 0.05
-    max_genes_network: 100
+  correlation_threshold: 0.65
+  fdr_alpha: 0.05
+  top_genes_per_tissue: 15
+  n_coexpression_genes: 100
 
+# ML settings
 ml:
-  classifier:
-    test_size: 0.2
-    cv_folds: 5
-  vae:
-    latent_dim: 64
-    hidden_dims: [256, 128]
-    epochs: 50
-    batch_size: 128
+  tabtransformer:
+    d_model: 64
+    nhead: 4
+    num_layers: 3
+    dim_feedforward: 128
+    dropout: 0.1
+    batch_size: 16
+    num_epochs: 100
     learning_rate: 0.001
-    beta: 0.5
+    
+  xgboost:
+    n_estimators: 200
+    max_depth: 6
+    learning_rate: 0.05
+    
+  lasso:
+    max_iter: 1000
+    cv_folds: 5
 
-visualization:
-  interactive: true
-  output_dir: "outputs"
-  figure_dpi: 300
+# VAE settings
+vae:
+  latent_dim: 64
+  hidden_dims: [256, 128]
+  beta: 0.5
+  num_epochs: 50
+  batch_size: 128
+
+# Output settings
+output:
+  dir: "outputs"
+  save_models: true
+  save_plots: true
