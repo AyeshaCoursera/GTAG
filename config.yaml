@@ -1,0 +1,36 @@
+# Transcriptomic Visual Framework Configuration
+
+data:
+  gtex_path: "s3://openproblems-data/resources/datasets/cellxgene_census/gtex_v9/log_cp10k/dataset.h5ad"
+  tcga_path: "TCGA-STAD.star_counts.tsv"
+  random_seed: 42
+  n_cells_sample: 10000
+  n_hvg: 500
+  min_cells_per_gene: 3
+  min_genes_per_cell: 200
+
+analysis:
+  tissue_specific:
+    lfc_threshold: 1.0
+    fdr_threshold: 0.05
+  coexpression:
+    correlation_threshold: 0.6
+    fdr_threshold: 0.05
+    max_genes_network: 100
+
+ml:
+  classifier:
+    test_size: 0.2
+    cv_folds: 5
+  vae:
+    latent_dim: 64
+    hidden_dims: [256, 128]
+    epochs: 50
+    batch_size: 128
+    learning_rate: 0.001
+    beta: 0.5
+
+visualization:
+  interactive: true
+  output_dir: "outputs"
+  figure_dpi: 300
