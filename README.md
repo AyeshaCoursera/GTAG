@@ -13,7 +13,7 @@ pip install -r requirements.txt
 
 ### Device
 
-- **Development**: Single NVIDIA GPU (CUDA 11+) recommended for model training
+- **Development**: T4 NVIDIA GPU (CUDA 11+) recommended for model training
 - **Inference**: CPU or GPU (minimum 16GB RAM for GTEx dataset)
 
 ## Key Algorithms and Implementation
